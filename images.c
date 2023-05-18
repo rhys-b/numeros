@@ -1,5 +1,16 @@
 #include "images.h"
 
+// readint
+// =======
+//
+// Reads either a 2 or 4 byte integer value out of big endian data.
+//
+// Parameters:
+//   bytecount - Either 2 or 4, depending on the wanted output size.
+//        data - The big ending data.
+//
+// Return:
+//  A 32 bit integer of the numer contained in data.
 static uint32_t readint(int bytecount, unsigned char* data)
 {
 	if (bytecount == 4)
@@ -26,6 +37,17 @@ static uint32_t readint(int bytecount, unsigned char* data)
 	return 0;
 }
 
+// read_image
+// ==========
+//
+// Reads a 24 bits-per-pixel bitmap image and returns the red values.
+//
+// Parameters:
+//   path - Path to the image.
+//
+// Return:
+//   Bytes corresponding to greyscale pixel values (1 byte per pixel),
+//   left to right, then down. Call free() when this is no longer needed.
 unsigned char* read_image(char* path)
 {
 	FILE* file = fopen(path, "rb");
