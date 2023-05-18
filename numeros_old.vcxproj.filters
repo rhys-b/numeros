@@ -21,6 +21,9 @@
     <ClCompile Include="numeros.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="images.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="linalg.h">
@@ -29,5 +32,11 @@
     <ClInclude Include="numeros.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="images.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" />
   </ItemGroup>
 </Project>
