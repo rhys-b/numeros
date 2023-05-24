@@ -8,7 +8,7 @@
 #include <cublas_v2.h>
 #endif
 
-#define BATCH_SIZE 60000
+#define BATCH_SIZE 10000
 #define TEST_SIZE 10000
 #define ITERATIONS 500
 
