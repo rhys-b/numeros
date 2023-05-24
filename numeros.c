@@ -1,7 +1,15 @@
-#include "numeros.h"
+﻿#include "numeros.h"
 
 int main(int argc, char **argv)
 {
+	if (argc <= 1)
+	{
+		printf("numeros requires on of the following:\n  - \"test\"\n  - \"train\"\n  - a filename.\n");
+		return 0;
+	}
+
+	matrix_init();
+
 	if (strequ(argv[1], "train"))
 	{
 		train();
@@ -14,6 +22,8 @@ int main(int argc, char **argv)
 	{
 		image(argv[1]);
 	}
+
+	return 0;
 }
 
 // train
@@ -22,8 +32,6 @@ int main(int argc, char **argv)
 // Trains the model using the MNIST database.
 void train(void)
 {
-	srand(time(NULL));
-
 	FILE *image_file = fopen("data/train-images.idx3-ubyte", "rb");
 	if (image_file == NULL)
 	{
@@ -39,7 +47,7 @@ void train(void)
 		exit(2);
 	}
 
-	unsigned char *buffer = malloc(50000000);
+	unsigned char *buffer = (unsigned char*)malloc(50000000);
 	if (buffer == NULL)
 	{
 		printf("Your computer has run out of memory :(\n");
@@ -52,7 +60,7 @@ void train(void)
 	fread(buffer, 1, 8, label_file);
 
 	Matrix *pixels = matrix_new(784, BATCH_SIZE);
-	unsigned char *labels = malloc(BATCH_SIZE);
+	unsigned char *labels = (unsigned char*)malloc(BATCH_SIZE);
 
 	fread(buffer, 784, BATCH_SIZE, image_file);
 	fread(labels, 1, BATCH_SIZE, label_file);
@@ -83,16 +91,24 @@ void train(void)
 	matrix_rand(b1);
 	matrix_rand(W2);
 	matrix_rand(b2);
-	
+
 	double learning_rate = 0.1;
 
 	for (unsigned int i = 1; i <= ITERATIONS; i++)
 	{
+#if USE_CUDA
+		tmp = matrix_multiply(W1, pixels, CUBLAS_OP_N, CUBLAS_OP_N);
+#else
 		tmp = matrix_multiply(W1, pixels);
+#endif
 		Z1 = matrix_add_to_rows(tmp, b1);
 		matrix_free(tmp);
 		A1 = matrix_ReLU(Z1);
+#if USE_CUDA
+		tmp = matrix_multiply(W2, A1, CUBLAS_OP_N, CUBLAS_OP_N);
+#else
 		tmp = matrix_multiply(W2, A1);
+#endif
 		Z2 = matrix_add_to_rows(tmp, b2);
 		matrix_free(tmp);
 		A2 = matrix_softmax(Z2);
@@ -103,45 +119,50 @@ void train(void)
 			matrix_set(answers, labels[image], image, 1.0);
 		}
 
-		dZ2 = matrix_subtract(A2, answers);
+		dZ2 = matrix_subtract(A2, answers, 1.0);
+
+#if USE_CUDA
+		dW2 = matrix_multiply(dZ2, A1, CUBLAS_OP_N, CUBLAS_OP_T);
+#else
 		tmp = matrix_transpose(A1);
 		dW2 = matrix_multiply(dZ2, tmp);
 		matrix_free(tmp);
+#endif
 		db2 = matrix_sum_rows(dZ2);
+#if USE_CUDA
+		tmp2 = matrix_multiply(W2, dZ2, CUBLAS_OP_T, CUBLAS_OP_N);
+#else
 		tmp = matrix_transpose(W2);
 		tmp2 = matrix_multiply(tmp, dZ2);
+		matrix_free(tmp);
+#endif
 		tmp3 = matrix_dReLU(Z1);
 		dZ1 = matrix_elementwise_multiply(tmp2, tmp3);
-		matrix_free(tmp);
 		matrix_free(tmp2);
 		matrix_free(tmp3);
+#if USE_CUDA
+		tmp2 = matrix_multiply(pixels, dZ1, CUBLAS_OP_N, CUBLAS_OP_T);
+#else
 		tmp = matrix_transpose(dZ1);
 		tmp2 = matrix_multiply(pixels, tmp);
-		dW1 = matrix_transpose(tmp2);
 		matrix_free(tmp);
+#endif
+		dW1 = matrix_transpose(tmp2);
 		matrix_free(tmp2);
 		db1 = matrix_sum_rows(dZ1);
 
-		tmp = matrix_multiply_scalar(dW1, learning_rate / BATCH_SIZE);
-		nW1 = matrix_subtract(W1, tmp);
-		matrix_free(tmp);
-		tmp = matrix_multiply_scalar(db1, learning_rate / BATCH_SIZE);
-		nb1 = matrix_subtract(b1, tmp);
-		matrix_free(tmp);
-		tmp = matrix_multiply_scalar(dW2, learning_rate / BATCH_SIZE);
-		nW2 = matrix_subtract(W2, tmp);
-		matrix_free(tmp);
-		tmp = matrix_multiply_scalar(db2, learning_rate / BATCH_SIZE);
-		nb2 = matrix_subtract(b2, tmp);
-		matrix_free(tmp);
+		nW1 = matrix_subtract(W1, dW1, learning_rate / BATCH_SIZE);
+		nb1 = matrix_subtract(b1, db1, learning_rate / BATCH_SIZE);
+		nW2 = matrix_subtract(W2, dW2, learning_rate / BATCH_SIZE);
+		nb2 = matrix_subtract(b2, db2, learning_rate / BATCH_SIZE);
 
-		double mk = 100.0 * mark(A2, labels);
+		double mk = 100.0 * mark(A2, labels, BATCH_SIZE);
 
 		matrix_free(W1);
 		matrix_free(b1);
 		matrix_free(W2);
 		matrix_free(b2);
-		
+
 		matrix_free(A1);
 		matrix_free(A2);
 		matrix_free(Z1);
@@ -212,8 +233,8 @@ void test(void)
 		exit(4);
 	}
 
-	unsigned char *raw_test_data = malloc(TEST_SIZE*1000);
-	unsigned char *labels = malloc(TEST_SIZE);
+	unsigned char *raw_test_data = (unsigned char*)malloc(TEST_SIZE*784);
+	unsigned char *labels = (unsigned char*)malloc(TEST_SIZE);
 
 	// Headers.
 	fread(raw_test_data, 1, 16, test_images);
@@ -222,10 +243,10 @@ void test(void)
 	fread(raw_test_data, 784, TEST_SIZE, test_images);
 	fread(labels, 1, TEST_SIZE, test_labels);
 
-	double *W1_buffer = malloc(sizeof(double)*7840);
-	double *W2_buffer = malloc(sizeof(double)*100);
-	double *b1_buffer = malloc(sizeof(double)*10);
-	double *b2_buffer = malloc(sizeof(double)*10);
+	double *W1_buffer = (double*)malloc(sizeof(double)*7840);
+	double *W2_buffer = (double*)malloc(sizeof(double)*100);
+	double *b1_buffer = (double*)malloc(sizeof(double)*10);
+	double *b2_buffer = (double*)malloc(sizeof(double)*10);
 
 	fread(W1_buffer, sizeof(double), 7840, brainsave);
 	fread(W2_buffer, sizeof(double), 100, brainsave);
@@ -253,16 +274,24 @@ void test(void)
 
 	Matrix *A1, *A2, *Z1, *Z2, *tmp;
 
+#if USE_CUDA
+	tmp = matrix_multiply(W1, pixels, CUBLAS_OP_N, CUBLAS_OP_N);
+#else
 	tmp = matrix_multiply(W1, pixels);
+#endif
 	Z1 = matrix_add_to_rows(tmp, b1);
 	matrix_free(tmp);
 	A1 = matrix_ReLU(Z1);
+#if USE_CUDA
+	tmp = matrix_multiply(W2, A1, CUBLAS_OP_N, CUBLAS_OP_N);
+#else
 	tmp = matrix_multiply(W2, A1);
+#endif
 	Z2 = matrix_add_to_rows(tmp, b2);
 	matrix_free(tmp);
 	A2 = matrix_softmax(Z2);
 
-	printf("Accuracy: %.2lf%%.\n", 100.0 * mark(A2, labels));
+	printf("Accuracy: %.2lf%%.\n", 100.0 * mark(A2, labels, TEST_SIZE));
 	free(labels);
 
 	matrix_free(A1);
@@ -318,11 +347,19 @@ void image(char *path)
 
 	Matrix *A1, *A2, *Z1, *Z2, *tmp;
 
+#if USE_CUDA
+	tmp = matrix_multiply(W1, pixels, CUBLAS_OP_N, CUBLAS_OP_N);
+#else
 	tmp = matrix_multiply(W1, pixels);
+#endif
 	Z1 = matrix_add_to_rows(tmp, b1);
 	matrix_free(tmp);
 	A1 = matrix_ReLU(Z1);
+#if USE_CUDA
+	tmp = matrix_multiply(W2, A1, CUBLAS_OP_N, CUBLAS_OP_N);
+#else
 	tmp = matrix_multiply(W2, A1);
+#endif
 	Z2 = matrix_add_to_rows(tmp, b2);
 	matrix_free(tmp);
 	A2 = matrix_softmax(Z2);
@@ -365,11 +402,11 @@ void image(char *path)
 //
 // Return:
 //   A ratio between 0 and 1 representing correct answers over total images.
-double mark(Matrix *output, unsigned char *answers)
+double mark(Matrix *output, unsigned char *answers, unsigned int size)
 {
 	unsigned int correct = 0;
 
-	for (int image = 0; image < BATCH_SIZE; image++)
+	for (int image = 0; image < size; image++)
 	{
 		int response = 0;
 

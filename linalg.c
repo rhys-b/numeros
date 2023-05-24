@@ -1,5 +1,35 @@
 #include "linalg.h"
 
+#if USE_CUDA
+cublasHandle_t cublas;
+
+// matrix_move_to_gpu
+// ==================
+//
+// Moves memory from a matrix's data into GPU dedicated memory.
+//
+// Parameters:
+//   matrix: The matrix whose data is to be moved.
+//
+// Return:
+//   The pointer to the GPU device's memory location.
+double *matrix_move_to_gpu(Matrix *matrix)
+{
+	double *gpu;
+	int size = sizeof(double) * matrix->rows * matrix->cols;
+	cublasStatus_t status = cudaMalloc(&gpu, size);
+
+	if (status != CUBLAS_STATUS_SUCCESS)
+	{
+		printf("Cublas reported an error.\n");
+	}
+
+	cudaMemcpy(gpu, matrix->data, size, cudaMemcpyHostToDevice);
+
+	return gpu;
+}
+#endif
+
 // idx
 // ===
 //
@@ -14,7 +44,7 @@
 //   The offset (array index) of the position (row,col).
 static unsigned int idx(Matrix *this, double row, double col)
 {
-	return this->cols * row + col;
+	return this->rows * col + row;
 }
 
 // mymax
@@ -31,6 +61,19 @@ static unsigned int idx(Matrix *this, double row, double col)
 static double mymax(double a, double b)
 {
 	return (a>b) * a + (a<=b) * b;
+}
+
+// matrix_init
+// ===========
+//
+// Must be called before using any of the matrix operations.
+void matrix_init(void)
+{
+	//srand(time(NULL));
+
+#if USE_CUDA
+	cublasCreate(&cublas);
+#endif
 }
 
 // matrix_new
@@ -140,15 +183,68 @@ double matrix_get(Matrix *this, unsigned int row, unsigned int col)
 //
 // Return:
 //   A newly allocated matrix. Call matrix_free() when no longer needed.
+#if USE_CUDA
+Matrix *matrix_multiply(Matrix *this, Matrix *other, cublasOperation_t matrix_operation, cublasOperation_t other_operation)
+#else
 Matrix *matrix_multiply(Matrix *this, Matrix *other)
+#endif
 {
-	if (this->cols != other->rows)
+	bool transpose_matrix = false, transpose_other = false;
+#if USE_CUDA
+	transpose_matrix = matrix_operation == CUBLAS_OP_T;
+	transpose_other = other_operation == CUBLAS_OP_T;
+#endif
+
+	unsigned int matcols = (transpose_matrix) ? this->rows : this->cols;
+	unsigned int othrows = (transpose_other) ? other->cols : other->rows;
+
+	if (matcols != othrows)
 	{
-		printf("Cannot multiply matrices due to incompatible sizes.\n");
+		printf("Cannot multiply matrices due to incompatible sizes: (%u,%u) and (%u,%u).\n", this->rows, this->cols, other->rows, other->cols);
 		exit(1);
 	}
 
-	Matrix *output = matrix_new(this->rows, other->cols);
+	Matrix *output = matrix_new((transpose_matrix) ? this->cols : this->rows, (transpose_other) ? other->rows : other->cols);
+
+#if USE_CUDA
+	double alpha = 1, beta = 0;
+
+	double *matrix_gpu = matrix_move_to_gpu(this);
+	double *other_gpu = matrix_move_to_gpu(other);
+
+	int m = (transpose_matrix) ? this->cols : this->rows;
+	int n = (transpose_other) ? other->rows : other->cols;
+	int k = (transpose_matrix) ? this->rows : this->cols;
+
+	double *output_gpu;
+	int output_gpu_size = sizeof(double) * m * n;
+	cudaMalloc(&output_gpu, output_gpu_size);
+
+	cublasStatus_t status = cublasDgemm(
+		cublas,
+		matrix_operation, other_operation,
+		m, n, k,
+		&alpha,
+		matrix_gpu, this->rows,
+		other_gpu, other->rows,
+		&beta,
+		output_gpu, output->rows
+	);
+
+	if (status != CUBLAS_STATUS_SUCCESS)
+	{
+		printf("Cublas reported an error.\n");
+		exit(5);
+	}
+
+	cudaMemcpy(output->data, output_gpu, output_gpu_size, cudaMemcpyDeviceToHost);
+
+	cudaFree(matrix_gpu);
+	cudaFree(other_gpu);
+	cudaFree(output_gpu);
+
+#else
+
 	double sum;
 
 	for (unsigned int thisRow = 0; thisRow < this->rows; thisRow++)
@@ -165,6 +261,8 @@ Matrix *matrix_multiply(Matrix *this, Matrix *other)
 			matrix_set(output, thisRow, otherCol, sum);
 		}
 	}
+	
+#endif
 
 	return output;
 }
@@ -346,10 +444,11 @@ Matrix *matrix_transpose(Matrix *this)
 // Parameters:
 //    this - The matrix.
 //   other - The other matrix.
+//   scale - The amount by which to scale the other matrix.
 //
 // Return:
 //   A newly allocated matrix. Call matrix_free() when no longer needed.
-Matrix *matrix_subtract(Matrix *this, Matrix *other)
+Matrix *matrix_subtract(Matrix *this, Matrix *other, double scale)
 {
 	if (this->cols != other->cols || this->rows != other->rows)
 	{
@@ -363,7 +462,7 @@ Matrix *matrix_subtract(Matrix *this, Matrix *other)
 	{
 		for (unsigned int col = 0; col < this->cols; col++)
 		{
-			matrix_set(output, row, col, matrix_get(this, row, col) - matrix_get(other, row, col));
+			matrix_set(output, row, col, matrix_get(this, row, col) - matrix_get(other, row, col) * scale);
 		}
 	}
 
@@ -461,4 +560,49 @@ void matrix_clear(Matrix *this)
 			matrix_set(this, row, col, 0);
 		}
 	}
+}
+
+// matrix_print
+// ============
+//
+// Prints the given matrix in a clean format.
+//
+// Parameters:
+//   matrix - The matrix to print.
+void matrix_print(Matrix *matrix)
+{
+	unsigned int row = 0, col;
+
+	while (row < matrix->rows)
+	{
+		printf("[ ");
+		col = 0;
+		while (col < matrix->cols)
+		{
+			printf("%7.2lf", matrix_get(matrix, row, col));
+
+			if (matrix->cols > 10 && col == 6)
+			{
+				col = matrix->cols - 6;
+				printf(" ... ");
+			}
+			else
+			{
+				col++;
+			}
+		}
+		printf(" ]\n");
+
+		if (matrix->rows > 10 && row == 6)
+		{
+			row = matrix->rows - 6;
+			printf(".\n.\n.\n");
+		}
+		else
+		{
+			row++;
+		}
+	}
+
+	printf("\n\n\n");
 }

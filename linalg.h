@@ -6,6 +6,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <stdbool.h>
+
+#if USE_CUDA
+#include <cublas_v2.h>
+#endif
 
 
 typedef struct
@@ -13,6 +18,26 @@ typedef struct
 	unsigned int rows, cols;
 	double *data;
 } Matrix;
+
+#if USE_CUDA
+// matrix_move_to_gpu
+// ==================
+//
+// Moves memory from a matrix's data into GPU dedicated memory.
+//
+// Parameters:
+//   matrix: The matrix whose data is to be moved.
+//
+// Return:
+//   The pointer to the GPU device's memory location.
+double *matrix_move_to_gpu(Matrix *matrix);
+#endif
+
+// matrix_init
+// ===========
+//
+// Must be called before using any of the matrix operations.
+void matrix_init(void);
 
 // matrix_new
 // ==========
@@ -35,7 +60,7 @@ Matrix *matrix_new(unsigned int rows, unsigned int cols);
 // Parameters:
 //   rows - The number of rows the matrix has.
 //   cols - The number of columns the matrix has.
-//   data - The left to right then down data of the matrix. The matrix takes ownership of this data.
+//   data - The left to right then down data of the matrix. The matrix takes ownership of matrix data.
 //
 // Return:
 //   The matrix. Call matrix_free() when no longer needed.
@@ -47,8 +72,8 @@ Matrix *matrix_new_from_data(unsigned int rows, unsigned int cols, double *data)
 // Releases the resources used by a matrix.
 //
 // Parameters:
-//   this - The matrix.
-void matrix_free(Matrix *this);
+//   matrix - The matrix.
+void matrix_free(Matrix *matrix);
 
 // matrix_set
 // ==========
@@ -56,11 +81,11 @@ void matrix_free(Matrix *this);
 // Sets a value in a matrix.
 //
 // Parameters:
-//    this - The matrix.
-//     row - The row.
-//     col - The column.
-//   value - The value to set the element to.
-void matrix_set(Matrix *this, unsigned int row, unsigned int col, double value);
+//   matrix - The matrix.
+//      row - The row.
+//      col - The column.
+//    value - The value to set the element to.
+void matrix_set(Matrix *matrix, unsigned int row, unsigned int col, double value);
 
 // matrix_get
 // ==========
@@ -68,26 +93,30 @@ void matrix_set(Matrix *this, unsigned int row, unsigned int col, double value);
 // Gets a value from a matrix.
 //
 // Parameters:
-//   this - The matrix.
+//   matrix - The matrix.
 //    row - The row.
 //    col - The column.
 //
 // Return:
 //   The value in the matrix.
-double matrix_get(Matrix *this, unsigned int row, unsigned int col);
+double matrix_get(Matrix *matrix, unsigned int row, unsigned int col);
 
 // matrix_multiply
 // ===============
 //
-// Multiplies this matrix with another matrix.
+// Multiplies matrix matrix with another matrix.
 //
 // Parameters:
-//    this - The first matrix.
+//    matrix - The first matrix.
 //   other - The second matrix.
 //
 // Return:
 //   A newly allocated matrix. Call matrix_free() when no longer needed.
-Matrix *matrix_multiply(Matrix *this, Matrix *other);
+#if USE_CUDA
+Matrix *matrix_multiply(Matrix *matrix, Matrix *other, cublasOperation_t matop, cublasOperation_t othop);
+#else
+Matrix *matrix_multiply(Matrix *matrix, Matrix *other);
+#endif
 
 // matrix_elementwise_multiply
 // ===========================
@@ -95,12 +124,12 @@ Matrix *matrix_multiply(Matrix *this, Matrix *other);
 // Multiplies each element of a matrix with the corresponding element of another matrix.
 //
 // Parameters:
-//    this - The first matrix.
+//    matrix - The first matrix.
 //   other - The second matrix.
 //
 // Return:
 //   A newly allocated matrix. Call matrix_free() when no longer needed.
-Matrix *matrix_elementwise_multiply(Matrix *this, Matrix *other);
+Matrix *matrix_elementwise_multiply(Matrix *matrix, Matrix *other);
 
 // matrix_add_to_rows
 // ==================
@@ -108,12 +137,12 @@ Matrix *matrix_elementwise_multiply(Matrix *this, Matrix *other);
 // Adds the value in the first column of the other matrix to each element in the corresponding row of the first matrix.
 //
 // Parameters:
-//    this - The first matrix.
+//    matrix - The first matrix.
 //   other - The second matrix.
 //
 // Return:
 //   A newly allocated matrix. Call matrix_free() when no longer needed.
-Matrix *matrix_add_to_rows(Matrix *this, Matrix *other);
+Matrix *matrix_add_to_rows(Matrix *matrix, Matrix *other);
 
 // matrix_sum_rows
 // ===============
@@ -121,11 +150,11 @@ Matrix *matrix_add_to_rows(Matrix *this, Matrix *other);
 // Creates an (N,1) matrix where each element is the sum of the row of the input matrix.
 //
 // Parameters:
-//   this - The matrix.
+//   matrix - The matrix.
 //
 // Return:
 //   A newly allocated matrix. Call matrix_free() when no longer needed.
-Matrix *matrix_sum_rows(Matrix *this);
+Matrix *matrix_sum_rows(Matrix *matrix);
 
 // matrix_ReLU
 // ===========
@@ -133,11 +162,11 @@ Matrix *matrix_sum_rows(Matrix *this);
 // Performs a ReLU on each element of the matrix.
 //
 // Parameters:
-//   this - The matrix.
+//   matrix - The matrix.
 //
 // Return:
 //   A newly allocated matrix. Call matrix_free() when no longer needed.
-Matrix *matrix_ReLU(Matrix *this);
+Matrix *matrix_ReLU(Matrix *matrix);
 
 // matrix_dReLU
 // ============
@@ -145,11 +174,11 @@ Matrix *matrix_ReLU(Matrix *this);
 // Performs the derivative of a ReLU on each element of the matrix.
 //
 // Parameters:
-//   this - The matrix.
+//   matrix - The matrix.
 //
 // Return:
 //   A newly allocated matrix. Call matrix_free() when no longer needed.
-Matrix *matrix_dReLU(Matrix *this);
+Matrix *matrix_dReLU(Matrix *matrix);
 
 // matrix_transpose
 // ================
@@ -157,24 +186,25 @@ Matrix *matrix_dReLU(Matrix *this);
 // Transposes a matrix.
 //
 // Parameters:
-//   this - The matrix.
+//   matrix - The matrix.
 //
 // Return:
 //   A newly allocated matrix. Call matrix_free() when no longer needed.
-Matrix *matrix_transpose(Matrix *this);
+Matrix *matrix_transpose(Matrix *matrix);
 
 // matrix_subtract
 // ===============
 //
-// Subtracts each element of the other matrix from this matrix.
+// Subtracts each element of the other matrix from matrix matrix.
 //
 // Parameters:
-//    this - The matrix.
-//   other - The other matrix.
+//    matrix - The matrix.
+//    other - The other matrix.
+//    scale - The amount by which to scale the other matrix.
 //
 // Return:
 //   A newly allocated matrix. Call matrix_free() when no longer needed.
-Matrix *matrix_subtract(Matrix *this, Matrix *other);
+Matrix *matrix_subtract(Matrix *matrix, Matrix *other, double scale);
 
 // matrix_multiply_scalar
 // ======================
@@ -182,12 +212,12 @@ Matrix *matrix_subtract(Matrix *this, Matrix *other);
 // Multiplies each element in a matrix by a scalar value.
 //
 // Parameters:
-//    this - The matrix.
-//   value - The scalar to multiply by.
+//    matrix - The matrix.
+//    value - The scalar to multiply by.
 //
 // Return:
 //   A newly allocated matrix. Call matrix_free() when no longer needed.
-Matrix *matrix_multiply_scalar(Matrix *this, double value);
+Matrix *matrix_multiply_scalar(Matrix *matrix, double value);
 
 // matrix_softmax
 // ==============
@@ -195,11 +225,11 @@ Matrix *matrix_multiply_scalar(Matrix *this, double value);
 // Performs a softmax operation on each column of the matrix.
 //
 // Parameters:
-//   this - The matrix.
+//   matrix - The matrix.
 //
 // Return:
 //   A newly allocated matrix. Call matrix_free() when no longer needed.
-Matrix *matrix_softmax(Matrix *this);
+Matrix *matrix_softmax(Matrix *matrix);
 
 // matrix_rand
 // ===========
@@ -207,8 +237,8 @@ Matrix *matrix_softmax(Matrix *this);
 // Randomizes matrix elements to between -0.5 and 0.5, inclusive.
 //
 // Parameters:
-//   this - The matrix.
-void matrix_rand(Matrix *this);
+//   matrix - The matrix.
+void matrix_rand(Matrix *matrix);
 
 // matrix_clear
 // ============
@@ -216,8 +246,17 @@ void matrix_rand(Matrix *this);
 // Sets all values in a matrix to 0.
 //
 // Parameters:
-//   this - The matrix.
-void matrix_clear(Matrix *this);
+//   matrix - The matrix.
+void matrix_clear(Matrix *matrix);
+
+// matrix_print
+// ============
+//
+// Prints the given matrix in a clean format.
+//
+// Parameters:
+//   matrix - The matrix to print.
+void matrix_print(Matrix *matrix);
 
 
 #endif // LINALG_H
