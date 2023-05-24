@@ -6,22 +6,34 @@ using only the C standard library.
 
 ## Using
 
-The model takes a long time to train, because I only used 'vanilla' (unoptimized) matrix
-multipliation, and also only gets about 85% accuracy on the test data.
+The model originally took a long time to train, because I only used 'vanilla' (unoptimized) matrix
+multipliation. Therefore, I added CUDA support (Nvidia's GPU library) to speed things up.
+
+The model is only able to get about 85% accuracy on the test data.
 
 All bitmaps given must be 24 bits per pixel, and 28 by 28 pixels, black on white.
 
 ## Compiling
 
-A C compiler is required. The Mac and Linux examples use `gcc`,
-and the Windows examples use `cl`.
+A C compiler is required. For compiling with CUDA, I
+highly recommend using Nvidia's NVCC compiler, as it takes care of
+many of the dependencies. Look [here](https://developer.nvidia.com/how-to-cuda-c-cpp)
+for how to get started with CUDA.
 
-### Linux/Mac
 After cloning the repository, compile the model with
 
 ```
 gcc -o numeros numeros.c linalg.c images.c
 ```
+
+to only use the C standard library. `gcc` can be substituted for any C compiler of your choice.
+To use Nvidia GPU accelerated computing (if your computer has Nvidia graphics), use
+
+```
+nvcc -o numeros numeros.c linalg.c images.c -DUSE_CUDA=1 -lcublas
+```
+
+On windows, change `-lcublas` to `-lcublas.lib`.
 
 Train the model using
 
@@ -39,29 +51,4 @@ After training, try a bitmap image on the model using
 
 ```
 ./numeros <file_path>
-```
-
-### Windows
-After cloning the repository, compile the model with
-
-```
-cl numeros.c linalg.c images.c
-```
-
-Train the model using
-
-```
-numeros.exe train
-```
-
-After training, test the model using
-
-```
-numeros.exe test
-```
-
-After training, try a bitmap on the model using
-
-```
-numeros.exe <file_path>
 ```
