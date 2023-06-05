@@ -2,7 +2,7 @@
 
 A classic first machine learning excersize for recognizing hand written digits,
 trained using the legends over at MNIST, and written entirely in C,
-using only the C standard library.
+using only the C standard library and Nvidia's matrix multiplication.
 
 ## Using
 
